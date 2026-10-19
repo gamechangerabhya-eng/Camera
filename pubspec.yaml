@@ -1,14 +1,13 @@
-name: flutter_camera_live
-description: Flutter Web live camera capture with real preset background replacement.
+name: camera_ai_realtime
+description: Realtime Flutter Web AI background replacement using MediaPipe.
 publish_to: 'none'
-version: 1.2.0+3
+version: 2.0.0+4
 environment:
   sdk: '>=3.4.0 <4.0.0'
 dependencies:
   flutter:
     sdk: flutter
-  camera: ^0.12.1
-  image: ^4.5.4
+  web: ^1.1.1
 dev_dependencies:
   flutter_test:
     sdk: flutter

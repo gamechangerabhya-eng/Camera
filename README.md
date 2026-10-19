@@ -1,10 +1,15 @@
-# Camera Background Studio v2
+# Realtime AI Background Studio v2
 
-GitHub Pages Flutter Web app with:
-- Device camera permission and live camera preview
-- Capture / retake photo
-- Background choices: Original, White, Blue, Green, Studio
-- Actual client-side background compositing for selected presets
+## Features
+- Live camera with browser permission
+- Real-time MediaPipe person segmentation
+- Camera tracks stop immediately after **Capture Photo**
+- Static captured result remains visible after camera shutdown
+- Upload an existing image from the device
+- AI background removal for uploaded images
+- Change preset/custom background on uploaded images
+- Download final JPG
+- GitHub Actions deployment to GitHub Pages
 
-## Note
-For a GitHub-only, no-backend MVP, this version uses a lightweight centered portrait mask when replacing the background. It visibly changes the captured photo, but it is not AI-grade person segmentation. A browser-compatible segmentation model is needed for accurate hair/body edge removal.
+## Deploy
+Replace the existing repository contents with these files, commit to `main`, and keep **Settings > Pages > Source** set to **GitHub Actions**.
