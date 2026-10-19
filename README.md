@@ -1,2 +1,2 @@
-# Portrait Studio Pose Fusion
-Dual-model live segmentation: Selfie Segmenter plus Pose Landmarker segmentation mask. Pose Fusion is intended to reject nearby non-body objects more aggressively than a single portrait mask.
+# Portrait Studio Stable
+This emergency stability build removes the second Pose Landmarker pipeline that caused severe over-masking and browser stalls. It uses one GPU person segmenter, throttles inference, provides Portrait and Full-body profiles, and applies a conservative boundary only in Portrait mode.
