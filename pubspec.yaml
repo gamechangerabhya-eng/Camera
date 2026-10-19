@@ -1,12 +1,10 @@
-name: portrait_accuracy_pro
-description: Professional realtime browser portrait segmentation.
+name: portrait_pose_fusion
+description: Realtime portrait segmentation with pose fusion.
 publish_to: 'none'
-version: 4.0.0+1
-environment:
-  sdk: '>=3.4.0 <4.0.0'
+version: 5.0.0+1
+environment: {sdk: '>=3.4.0 <4.0.0'}
 dependencies:
   flutter: {sdk: flutter}
   web: ^1.1.1
-dev_dependencies:
-  flutter_lints: ^5.0.0
+dev_dependencies: {flutter_lints: ^5.0.0}
 flutter: {uses-material-design: true}
