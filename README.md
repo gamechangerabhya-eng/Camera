@@ -1,13 +1,11 @@
-# Portrait Studio Pro - Camera Access & Responsive Redesign
+# Portrait Studio Pro - Alignment & Layout Fix
 
-Key fixes:
-- camera controls moved above the preview and remain visible on desktop/mobile
-- desktop stage constrained to viewport instead of pushing controls below the fold
-- settings panel no longer has an internal clipped scrollbar
-- camera can open before the AI model finishes loading
-- fallback from preferred front/rear constraints to default camera
-- explicit secure-context and browser capability checks
-- actionable errors for blocked, missing, busy, or unsupported cameras
-- front/rear camera flip control
-- mobile portrait preview and touch-friendly two-column controls
-- built-in camera troubleshooting disclosure
+Critical correction:
+The previous front-camera build mirrored the source image before compositing but applied an unmirrored segmentation mask. That placed the person mask over different pixels and could visibly remove part of the face/body while retaining background regions. This build keeps model input, mask, and composited source in the same coordinate system.
+
+UI changes:
+- six desktop action buttons fit on one row
+- 3-column compact background gallery on wide desktop
+- shorter background cards
+- tighter detection controls so they remain visible without an inner scrollbar
+- mobile keeps the swipeable gallery and two-column controls
