@@ -1,89 +1,225 @@
 import 'dart:typed_data';
+import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
+import 'package:image/image.dart' as img;
 
-void main() => runApp(const BackgroundStudioApp());
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  runApp(const CameraStudioApp());
+}
 
-class BackgroundStudioApp extends StatelessWidget {
-  const BackgroundStudioApp({super.key});
+class CameraStudioApp extends StatelessWidget {
+  const CameraStudioApp({super.key});
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'Background Studio',
-      theme: ThemeData(colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xff6750a4)), useMaterial3: true),
-      home: const StudioPage(),
+      title: 'Camera Background Studio',
+      theme: ThemeData(
+        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xff6750a4)),
+        useMaterial3: true,
+      ),
+      home: const CameraPage(),
     );
   }
 }
 
-class StudioPage extends StatefulWidget {
-  const StudioPage({super.key});
+class CameraPage extends StatefulWidget {
+  const CameraPage({super.key});
+
   @override
-  State<StudioPage> createState() => _StudioPageState();
+  State<CameraPage> createState() => _CameraPageState();
 }
 
-class _StudioPageState extends State<StudioPage> {
-  final _picker = ImagePicker();
-  final _prompt = TextEditingController();
-  Uint8List? _photo;
-  String _background = 'Professional';
-  final backgrounds = const ['Professional', 'Beach', 'Nature', 'City', 'Studio', 'Gradient'];
+class _CameraPageState extends State<CameraPage> with WidgetsBindingObserver {
+  CameraController? _controller;
+  Uint8List? _capturedBytes;
+  bool _starting = false;
+  String? _error;
+  String _background = 'Original';
+  Uint8List? _resultBytes;
 
-  Future<void> _capture() async {
-    final file = await _picker.pickImage(source: ImageSource.camera, imageQuality: 90);
-    if (file != null) setState(() => _photo = null);
-    if (file != null) {
-      final bytes = await file.readAsBytes();
-      if (mounted) setState(() => _photo = bytes);
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  Future<void> _openCamera() async {
+    if (_starting) return;
+    setState(() {
+      _starting = true;
+      _error = null;
+      _capturedBytes = null;
+    });
+
+    try {
+      await _controller?.dispose();
+      final cameras = await availableCameras();
+      if (cameras.isEmpty) throw Exception('No camera was found on this device.');
+
+      final preferred = cameras.firstWhere(
+        (c) => c.lensDirection == CameraLensDirection.front,
+        orElse: () => cameras.first,
+      );
+
+      final controller = CameraController(
+        preferred,
+        ResolutionPreset.high,
+        enableAudio: false,
+      );
+      await controller.initialize();
+      if (!mounted) {
+        await controller.dispose();
+        return;
+      }
+      setState(() => _controller = controller);
+    } on CameraException catch (e) {
+      setState(() {
+        _error = e.code == 'CameraAccessDenied'
+            ? 'Camera permission was denied. Allow camera access in your browser and try again.'
+            : 'Unable to open camera: ${e.description ?? e.code}';
+      });
+    } catch (e) {
+      setState(() => _error = 'Unable to open camera: $e');
+    } finally {
+      if (mounted) setState(() => _starting = false);
     }
   }
 
-  Future<void> _upload() async {
-    final file = await _picker.pickImage(source: ImageSource.gallery, imageQuality: 90);
-    if (file != null) {
-      final bytes = await file.readAsBytes();
-      if (mounted) setState(() => _photo = bytes);
+  Future<void> _takePhoto() async {
+    final controller = _controller;
+    if (controller == null || !controller.value.isInitialized || controller.value.isTakingPicture) return;
+    try {
+      final picture = await controller.takePicture();
+      final bytes = await picture.readAsBytes();
+      if (mounted) setState(() => _capturedBytes = bytes);
+    } on CameraException catch (e) {
+      if (mounted) setState(() => _error = 'Could not capture photo: ${e.description ?? e.code}');
     }
+  }
+
+  Future<void> _retake() async {
+    setState(() { _capturedBytes = null; _resultBytes = null; _background = 'Original'; });
+    if (_controller == null || !_controller!.value.isInitialized) await _openCamera();
+  }
+
+
+  Future<void> _applyBackground(String name) async {
+    final sourceBytes = _capturedBytes;
+    if (sourceBytes == null) return;
+    setState(() => _background = name);
+    if (name == 'Original') {
+      setState(() => _resultBytes = null);
+      return;
+    }
+    final source = img.decodeImage(sourceBytes);
+    if (source == null) return;
+    final colors = <String, img.Color>{
+      'White': img.ColorRgb8(250, 250, 250),
+      'Blue': img.ColorRgb8(48, 88, 170),
+      'Green': img.ColorRgb8(56, 130, 92),
+      'Studio': img.ColorRgb8(40, 42, 50),
+    };
+    final bg = img.Image(width: source.width, height: source.height);
+    img.fill(bg, color: colors[name] ?? img.ColorRgb8(245, 245, 245));
+
+    // Lightweight center-subject mask for this GitHub-only MVP.
+    // Pixels around the image edges are replaced by the chosen background,
+    // while the central portrait region is retained with a soft elliptical edge.
+    final cx = source.width / 2.0;
+    final cy = source.height / 2.0;
+    final rx = source.width * 0.34;
+    final ry = source.height * 0.47;
+    for (var y = 0; y < source.height; y++) {
+      for (var x = 0; x < source.width; x++) {
+        final dx = (x - cx) / rx;
+        final dy = (y - cy) / ry;
+        final d = dx * dx + dy * dy;
+        if (d <= 1.0) {
+          bg.setPixel(x, y, source.getPixel(x, y));
+        }
+      }
+    }
+    setState(() => _resultBytes = Uint8List.fromList(img.encodeJpg(bg, quality: 92)));
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final controller = _controller;
+    if (controller == null || !controller.value.isInitialized) return;
+    if (state == AppLifecycleState.inactive) {
+      controller.dispose();
+      _controller = null;
+    }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _controller?.dispose();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    final cameraReady = _controller?.value.isInitialized ?? false;
     return Scaffold(
       backgroundColor: const Color(0xfff6f5fb),
-      appBar: AppBar(title: const Text('AI Background Studio'), centerTitle: true),
+      appBar: AppBar(title: const Text('Camera Background Studio'), centerTitle: true),
       body: Center(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
           child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 900),
-            child: Column(children: [
-              Card(
-                clipBehavior: Clip.antiAlias,
-                child: SizedBox(
-                  height: 440,
-                  width: double.infinity,
-                  child: _photo == null
-                      ? const Center(child: Column(mainAxisSize: MainAxisSize.min, children: [Icon(Icons.camera_alt_outlined, size: 80), SizedBox(height: 12), Text('Take or upload a photo')]))
-                      : Image.memory(_photo!, fit: BoxFit.contain),
+            constraints: const BoxConstraints(maxWidth: 850),
+            child: Column(
+              children: [
+                const Text('Open your device camera, allow permission, and capture a photo.', textAlign: TextAlign.center, style: TextStyle(fontSize: 18)),
+                const SizedBox(height: 18),
+                Card(
+                  clipBehavior: Clip.antiAlias,
+                  child: AspectRatio(
+                    aspectRatio: 4 / 3,
+                    child: _capturedBytes != null
+                        ? Image.memory(_resultBytes ?? _capturedBytes!, fit: BoxFit.contain)
+                        : cameraReady
+                            ? CameraPreview(_controller!)
+                            : Container(
+                                color: Colors.black87,
+                                alignment: Alignment.center,
+                                child: const Icon(Icons.camera_alt_outlined, size: 84, color: Colors.white70),
+                              ),
+                  ),
                 ),
-              ),
-              const SizedBox(height: 16),
-              Wrap(spacing: 12, runSpacing: 12, alignment: WrapAlignment.center, children: [
-                FilledButton.icon(onPressed: _capture, icon: const Icon(Icons.camera_alt), label: const Text('Take Photo')),
-                OutlinedButton.icon(onPressed: _upload, icon: const Icon(Icons.upload), label: const Text('Upload Photo')),
-              ]),
-              const SizedBox(height: 28),
-              const Align(alignment: Alignment.centerLeft, child: Text('Choose a background', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold))),
-              const SizedBox(height: 12),
-              Wrap(spacing: 8, runSpacing: 8, children: backgrounds.map((b) => ChoiceChip(label: Text(b), selected: _background == b, onSelected: (_) => setState(() => _background = b))).toList()),
-              const SizedBox(height: 20),
-              TextField(controller: _prompt, decoration: const InputDecoration(border: OutlineInputBorder(), labelText: 'Describe your own background', hintText: 'Example: modern office with warm natural lighting')),
-              const SizedBox(height: 12),
-              const Text('MVP note: camera/upload works now. Automatic person cutout and free-text AI background generation require an image-processing/AI service and are intentionally not faked in this GitHub-only build.', style: TextStyle(color: Colors.black54)),
-              const SizedBox(height: 18),
-              FilledButton.icon(onPressed: _photo == null ? null : () => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Selected background: ${_prompt.text.trim().isEmpty ? _background : _prompt.text.trim()}'))), icon: const Icon(Icons.auto_awesome), label: const Text('Apply Background')),
-            ]),
+                const SizedBox(height: 16),
+                if (_error != null) Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: Text(_error!, textAlign: TextAlign.center, style: const TextStyle(color: Colors.red)),
+                ),
+                if (_capturedBytes != null)
+                  FilledButton.icon(onPressed: _retake, icon: const Icon(Icons.refresh), label: const Text('Retake Photo'))
+                else if (!cameraReady)
+                  FilledButton.icon(onPressed: _starting ? null : _openCamera, icon: const Icon(Icons.videocam), label: Text(_starting ? 'Opening Camera...' : 'Open Camera'))
+                else
+                  FilledButton.icon(onPressed: _takePhoto, icon: const Icon(Icons.camera), label: const Text('Capture Photo')),
+                const SizedBox(height: 18),
+                if (_capturedBytes != null) ...[
+                  const Text('Choose Background', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    alignment: WrapAlignment.center,
+                    children: ['Original', 'White', 'Blue', 'Green', 'Studio'].map((name) =>
+                      ChoiceChip(label: Text(name), selected: _background == name, onSelected: (_) => _applyBackground(name))
+                    ).toList(),
+                  ),
+                  const SizedBox(height: 12),
+                  const Text('Selecting a preset now changes the captured image. The current GitHub-only MVP uses a simple centered portrait mask; accurate automatic person segmentation is the next upgrade.', textAlign: TextAlign.center, style: TextStyle(color: Colors.black54)),
+                ],
+              ],
+            ),
           ),
         ),
       ),

@@ -1,13 +1,14 @@
-name: flutter_background_studio
-description: Camera photo capture and customizable background Flutter web app.
+name: flutter_camera_live
+description: Flutter Web live camera capture with real preset background replacement.
 publish_to: 'none'
-version: 1.0.0+1
+version: 1.2.0+3
 environment:
-  sdk: '>=3.3.0 <4.0.0'
+  sdk: '>=3.4.0 <4.0.0'
 dependencies:
   flutter:
     sdk: flutter
-  image_picker: ^1.2.4
+  camera: ^0.12.1
+  image: ^4.5.4
 dev_dependencies:
   flutter_test:
     sdk: flutter
