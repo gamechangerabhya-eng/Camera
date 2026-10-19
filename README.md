@@ -1,13 +1,13 @@
-# Portrait Studio Pro - Tested Media Build
+# Portrait Studio Pro - Camera Access & Responsive Redesign
 
-Critical fixes in this build:
-- fixed operational state being overwritten by visual status updates, which previously stopped the realtime frame loop
-- separate VIDEO and IMAGE segmenters retained
-- live inference lock and serialized uploaded-photo processing
-- correct mirrored front-camera foreground while backgrounds and downloaded output remain readable
-- recording state, download state, and camera shutdown cleanup
-- image and video background upload
-- photo capture plus processed canvas video recording
-- explicit GitHub Actions workflow with `flutter analyze` before build
-
-Run repository checks with `python test/verify_project.py`.
+Key fixes:
+- camera controls moved above the preview and remain visible on desktop/mobile
+- desktop stage constrained to viewport instead of pushing controls below the fold
+- settings panel no longer has an internal clipped scrollbar
+- camera can open before the AI model finishes loading
+- fallback from preferred front/rear constraints to default camera
+- explicit secure-context and browser capability checks
+- actionable errors for blocked, missing, busy, or unsupported cameras
+- front/rear camera flip control
+- mobile portrait preview and touch-friendly two-column controls
+- built-in camera troubleshooting disclosure
