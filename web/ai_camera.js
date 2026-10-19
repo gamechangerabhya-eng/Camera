@@ -12,16 +12,20 @@ class AiCameraStudio extends HTMLElement {
     this.running = false;
     this.lastVideoTime = -1;
     this.lastInference = 0;
-    this.mode = 'studio';
+    this.mode = 'executive-office';
     this.customBg = null;
     this.uploadedPhoto = null;
     this.frozen = false;
     this.blurPx = 18;
+    this.threshold = 0.58;
+    this.edgeSoftness = 0.08;
+    this.assetBg = new Image();
   }
 
   connectedCallback() {
     this.render();
     this.bind();
+    this.assetBg.src='backgrounds/executive-office.jpg';
     this.initializeModel();
   }
 
@@ -30,36 +34,33 @@ class AiCameraStudio extends HTMLElement {
   render() {
     this.shadowRoot.innerHTML = `
     <style>
-      *{box-sizing:border-box} :host{display:block;width:100%;height:100%;font-family:Inter,system-ui,Segoe UI,sans-serif;background:#f4f6fb;color:#111827;overflow:auto}
-      .page{max-width:1180px;margin:auto;padding:20px}.head{text-align:center;margin-bottom:14px}.head h1{margin:0;font-size:clamp(25px,4vw,40px)}.head p{margin:7px 0;color:#64748b}
-      .grid{display:grid;grid-template-columns:minmax(0,2fr) minmax(280px,1fr);gap:18px}.card{background:white;border-radius:20px;padding:16px;box-shadow:0 12px 30px #17203a12}
-      .stage{position:relative;overflow:hidden;border-radius:16px;background:#111827;aspect-ratio:16/10}.stage video,.stage canvas{position:absolute;width:100%;height:100%;object-fit:cover;transform:scaleX(-1)}.stage video{opacity:0}.empty{position:absolute;inset:0;display:grid;place-items:center;color:#cbd5e1;text-align:center;padding:20px}.empty b{font-size:24px}.status{margin:10px 0 0;color:#475569;font-size:14px}.error{color:#b91c1c}
-      button,.upload{border:0;padding:11px 15px;border-radius:12px;font-weight:700;cursor:pointer;background:#eef2ff;color:#3730a3;display:inline-flex;align-items:center;justify-content:center;gap:7px}.primary{background:#5b5bd6;color:white}.danger{background:#fee2e2;color:#991b1b}.row{display:flex;gap:9px;flex-wrap:wrap;margin-top:12px}button:disabled{opacity:.5;cursor:not-allowed}
-      h3{margin:0 0 12px}.backgrounds{display:grid;grid-template-columns:repeat(2,1fr);gap:9px}.bg{min-height:64px;border:2px solid transparent;background:#f8fafc}.bg.active{border-color:#5b5bd6}.office{background:linear-gradient(145deg,#1e3a5f,#b8d8e8);color:white}.beach{background:linear-gradient(#58b8e8 0 52%,#f4d28b 52%);color:#063}.nature{background:linear-gradient(145deg,#174d2b,#8ecf75);color:white}.studio{background:radial-gradient(circle,#5d6472,#111827);color:white}.white{background:#fff;border-color:#e2e8f0}.blue{background:#2f67c7;color:white}.blur{background:linear-gradient(135deg,#777,#ddd);color:white}
-      input[type=range]{width:100%}.small{font-size:12px;color:#64748b;line-height:1.5}.upload input{display:none}.download{width:100%;margin-top:10px}
-      @media(max-width:820px){.grid{grid-template-columns:1fr}.page{padding:12px}.backgrounds{grid-template-columns:repeat(3,1fr)}}
-      @media(max-width:520px){.backgrounds{grid-template-columns:repeat(2,1fr)}button,.upload{flex:1}}
+      *{box-sizing:border-box} :host{display:block;width:100%;min-height:100vh;font-family:Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif;background:linear-gradient(135deg,#070b18 0%,#111a35 48%,#161a2d 100%);color:#f8fafc;overflow:auto}
+      button,.upload{font:inherit}.shell{max-width:1440px;margin:auto;padding:24px}.topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px}.brand{display:flex;gap:12px;align-items:center}.logo{width:44px;height:44px;display:grid;place-items:center;border-radius:14px;background:linear-gradient(145deg,#7567ff,#28b7ff);box-shadow:0 8px 30px #5769ff55;font-size:22px}.brand h1{font-size:21px;margin:0}.brand p{margin:3px 0 0;color:#94a3b8;font-size:13px}.badge{font-size:12px;font-weight:800;color:#8be0bd;border:1px solid #2d6652;background:#12362988;padding:7px 11px;border-radius:999px}
+      .workspace{display:grid;grid-template-columns:minmax(0,1fr) 390px;gap:20px}.viewer,.panel{border:1px solid #ffffff15;background:#ffffff0d;backdrop-filter:blur(20px);box-shadow:0 24px 80px #0005;border-radius:26px}.viewer{padding:16px}.stage{position:relative;overflow:hidden;border-radius:20px;background:#060913;aspect-ratio:16/10;border:1px solid #ffffff12}.stage:after{content:'';position:absolute;inset:0;pointer-events:none;box-shadow:inset 0 0 60px #0006}.stage video,.stage canvas{position:absolute;width:100%;height:100%;object-fit:cover;transform:scaleX(-1)}.stage video{opacity:0}.empty{position:absolute;inset:0;display:grid;place-items:center;text-align:center;color:#94a3b8;background:radial-gradient(circle at center,#17213c,#070b17 70%)}.empty .camIcon{width:76px;height:76px;margin:0 auto 14px;display:grid;place-items:center;border-radius:24px;background:#ffffff0c;border:1px solid #ffffff18;font-size:32px}.empty b{display:block;color:white;font-size:22px;margin-bottom:6px}
+      .viewerBottom{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:14px}.status{font-size:13px;color:#aab7ca;display:flex;align-items:center;gap:8px}.status:before{content:'';width:8px;height:8px;border-radius:50%;background:#4ade80;box-shadow:0 0 12px #4ade80}.status.error{color:#fecaca}.status.error:before{background:#ef4444}.actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+      button,.upload{border:1px solid #ffffff15;padding:10px 14px;border-radius:13px;font-weight:750;cursor:pointer;background:#ffffff0c;color:#e8edf7;display:inline-flex;align-items:center;justify-content:center;gap:7px;transition:.18s transform,.18s background,.18s border}.primary{border:0;background:linear-gradient(135deg,#6e5cff,#3db8ff);color:#fff;box-shadow:0 9px 24px #526dff45}.danger{color:#fecaca;background:#7f1d1d2b}.actions button:hover,.upload:hover,.bg:hover{transform:translateY(-1px);border-color:#ffffff35}button:disabled{opacity:.4;cursor:not-allowed;transform:none}
+      .panel{padding:18px;max-height:calc(100vh - 96px);overflow:auto;scrollbar-width:thin}.panelHeader{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}.panel h2{font-size:17px;margin:0}.panel .hint{font-size:12px;color:#8ea0b8}.backgrounds{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.bg{position:relative;min-height:94px;border-radius:16px;overflow:hidden;padding:0;border:2px solid transparent;background:#222;color:white;background-size:cover;background-position:center}.bg span{position:absolute;inset:auto 7px 7px;padding:6px 8px;background:#050814a8;backdrop-filter:blur(10px);border-radius:9px;font-size:11px;font-weight:800;text-align:left}.bg.active{border-color:#7c6cff;box-shadow:0 0 0 3px #7567ff30}.bg[data-mode="executive-office"]{background-image:url('backgrounds/executive-office.jpg')}.bg[data-mode="home-office"]{background-image:url('backgrounds/home-office.jpg')}.bg[data-mode="conference-room"]{background-image:url('backgrounds/conference-room.jpg')}.bg[data-mode="coworking"]{background-image:url('backgrounds/coworking.jpg')}.bg[data-mode="photo-studio"]{background-image:url('backgrounds/photo-studio.jpg')}.bg[data-mode="tech-office"]{background-image:url('backgrounds/tech-office.jpg')}.white{background:#f8fafc;color:#111}.blue{background:linear-gradient(135deg,#1d4ed8,#38bdf8)}.blur{background:linear-gradient(135deg,#334155,#94a3b8)}.original{background:linear-gradient(135deg,#202838,#101423)}
+      .section{padding-top:16px;margin-top:16px;border-top:1px solid #ffffff12}.labelRow{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}.labelRow label{font-size:12px;font-weight:800}.labelRow small{color:#8797ae}input[type=range]{width:100%;accent-color:#7968ff}.upload{width:100%;margin-top:10px;background:#ffffff0a}.upload input{display:none}.download{width:100%;margin-top:9px}.privacy{display:flex;gap:9px;margin-top:14px;padding:10px 11px;border-radius:13px;background:#071912aa;color:#8bd8b8;font-size:11px;line-height:1.45}
+      @media(max-width:960px){.shell{padding:16px}.workspace{grid-template-columns:1fr}.panel{max-height:none}.backgrounds{grid-template-columns:repeat(3,1fr)}}
+      @media(max-width:640px){:host{background:#080c18}.shell{padding:10px}.topbar{padding:6px 4px 10px}.brand p,.badge{display:none}.brand h1{font-size:17px}.logo{width:38px;height:38px;border-radius:12px}.workspace{gap:12px}.viewer,.panel{border-radius:20px}.viewer{padding:8px}.stage{border-radius:15px;aspect-ratio:3/4}.viewerBottom{display:block}.status{padding:4px 3px 10px}.actions{display:grid;grid-template-columns:1fr 1fr}.actions button,.actions .upload{min-height:46px;margin:0}.actions .primary{grid-column:1/-1}.panel{padding:14px}.backgrounds{display:flex;overflow-x:auto;gap:9px;padding-bottom:6px;scroll-snap-type:x mandatory}.bg{flex:0 0 128px;min-height:90px;scroll-snap-align:start}.section{margin-top:13px;padding-top:13px}.download{min-height:48px}.privacy{margin-bottom:4px}}
     </style>
-    <div class="page">
-      <div class="head"><h1>Realtime AI Background Studio</h1><p>Live person segmentation, background replacement, photo capture and download</p></div>
-      <div class="grid">
-        <section class="card">
-          <div class="stage"><video playsinline muted></video><canvas></canvas><div class="empty"><div><b>Camera is off</b><br>Select Open Camera and allow permission</div></div></div>
-          <div class="status">Loading AI segmentation model...</div>
-          <div class="row"><button class="primary open">Open Camera</button><label class="upload photoUpload">Upload Photo<input class="photoFile" type="file" accept="image/*"></label><button class="capture" disabled>Capture Photo</button><button class="danger stop" disabled>Stop Camera</button><button class="switch" disabled>Switch Camera</button></div>
+    <main class="shell">
+      <header class="topbar"><div class="brand"><div class="logo">✦</div><div><h1>Portrait Studio AI</h1><p>Private, realtime background replacement in your browser</p></div></div><div class="badge">● AI READY</div></header>
+      <div class="workspace">
+        <section class="viewer">
+          <div class="stage"><video playsinline muted></video><canvas></canvas><div class="empty"><div><div class="camIcon">▣</div><b>Ready for your portrait</b><span>Open the camera or upload a photo to begin</span></div></div></div>
+          <div class="viewerBottom"><div class="status">Loading AI segmentation...</div><div class="actions"><button class="primary open">Open Camera</button><label class="upload photoUpload">Upload Photo<input class="photoFile" type="file" accept="image/*"></label><button class="capture" disabled>Capture</button><button class="switch" disabled>Flip</button><button class="danger stop" disabled>Stop</button></div></div>
         </section>
-        <aside class="card">
-          <h3>Choose background</h3>
+        <aside class="panel">
+          <div class="panelHeader"><h2>Professional backgrounds</h2><span class="hint">Live preview</span></div>
           <div class="backgrounds">
-            <button class="bg active studio" data-mode="studio">Studio</button><button class="bg office" data-mode="office">Office</button><button class="bg beach" data-mode="beach">Beach</button><button class="bg nature" data-mode="nature">Nature</button><button class="bg white" data-mode="white">White</button><button class="bg blue" data-mode="blue">Blue</button><button class="bg blur" data-mode="blur">Blur</button><button class="bg" data-mode="original">Original</button>
+            <button class="bg active" data-mode="executive-office"><span>Executive</span></button><button class="bg" data-mode="home-office"><span>Home Office</span></button><button class="bg" data-mode="conference-room"><span>Conference</span></button><button class="bg" data-mode="coworking"><span>Coworking</span></button><button class="bg" data-mode="photo-studio"><span>Photo Studio</span></button><button class="bg" data-mode="tech-office"><span>Tech Office</span></button><button class="bg white" data-mode="white"><span>Clean White</span></button><button class="bg blue" data-mode="blue"><span>Corporate Blue</span></button><button class="bg blur" data-mode="blur"><span>Smart Blur</span></button><button class="bg original" data-mode="original"><span>Original</span></button>
           </div>
-          <label style="display:block;margin-top:16px;font-weight:700">Blur strength</label><input class="blurRange" type="range" min="4" max="35" value="18">
-          <label class="upload" style="margin-top:14px;width:100%">Upload custom background<input class="bgFile" type="file" accept="image/*"></label>
-          <button class="primary download" disabled>Download Last Capture</button>
-          <p class="small">For the cleanest edges, use even lighting, keep the full body inside the frame, and avoid clothing that closely matches the original background.</p>
+          <div class="section"><div class="labelRow"><label>Detection precision</label><small>Person only</small></div><input class="thresholdRange" type="range" min="42" max="78" value="58"><div class="labelRow" style="margin-top:12px"><label>Edge refinement</label><small>Hair & shoulders</small></div><input class="edgeRange" type="range" min="2" max="18" value="8"><div class="labelRow" style="margin-top:12px"><label>Background blur</label><small>Depth</small></div><input class="blurRange" type="range" min="4" max="35" value="18"></div>
+          <div class="section"><label class="upload">＋ Upload custom background<input class="bgFile" type="file" accept="image/*"></label><button class="primary download" disabled>Download portrait</button><div class="privacy"><b>✓</b><span>Camera access stops immediately after capture. Processing stays in the browser.</span></div></div>
         </aside>
       </div>
-    </div>`;
+    </main>`;
     this.video=this.$('video'); this.canvas=this.$('canvas'); this.ctx=this.canvas.getContext('2d',{willReadFrequently:true});
   }
 
@@ -68,8 +69,10 @@ class AiCameraStudio extends HTMLElement {
   bind(){
     this.$('.open').onclick=()=>this.openCamera(); this.$('.stop').onclick=()=>this.stopCamera(); this.$('.capture').onclick=()=>this.capture(); this.$('.download').onclick=()=>this.download();
     this.$('.switch').onclick=()=>{this.facing=this.facing==='user'?'environment':'user';this.openCamera()};
-    this.$all('.bg').forEach(b=>b.onclick=()=>{this.mode=b.dataset.mode;this.$all('.bg').forEach(x=>x.classList.toggle('active',x===b));if(this.uploadedPhoto)this.processUploadedPhoto();});
+    this.$all('.bg').forEach(b=>b.onclick=()=>{this.mode=b.dataset.mode;this.$all('.bg').forEach(x=>x.classList.toggle('active',x===b));if(this.isAssetMode())this.assetBg.src=`backgrounds/${this.mode}.jpg`;if(this.uploadedPhoto)this.processUploadedPhoto();});
     this.$('.blurRange').oninput=e=>this.blurPx=Number(e.target.value);
+    this.$('.thresholdRange').oninput=e=>{this.threshold=Number(e.target.value)/100;if(this.uploadedPhoto)this.processUploadedPhoto();};
+    this.$('.edgeRange').oninput=e=>{this.edgeSoftness=Number(e.target.value)/100;if(this.uploadedPhoto)this.processUploadedPhoto();};
     this.$('.photoFile').onchange=e=>this.loadPhoto(e);
     this.$('.bgFile').onchange=e=>{const f=e.target.files[0];if(!f)return;const im=new Image();im.onload=()=>{this.customBg=im;this.mode='custom';this.$all('.bg').forEach(x=>x.classList.remove('active'))};im.src=URL.createObjectURL(f)};
   }
@@ -103,12 +106,25 @@ class AiCameraStudio extends HTMLElement {
     requestAnimationFrame(t=>this.loop(t));
   }
 
+  isAssetMode(){return ['executive-office','home-office','conference-room','coworking','photo-studio','tech-office'].includes(this.mode)}
+  drawCover(ctx,img,w,h){const r=Math.max(w/img.naturalWidth,h/img.naturalHeight),dw=img.naturalWidth*r,dh=img.naturalHeight*r;ctx.drawImage(img,(w-dw)/2,(h-dh)/2,dw,dh)}
   drawBackground(w,h){
-    const c=this.ctx;if(this.mode==='original'){c.drawImage(this.video,0,0,w,h);return}
+    const c=this.ctx;if(this.isAssetMode()){if(this.assetBg.complete&&this.assetBg.naturalWidth)this.drawCover(c,this.assetBg,w,h);else{this.assetBg.onload=()=>{};this.assetBg.src=`backgrounds/${this.mode}.jpg`;c.fillStyle='#263142';c.fillRect(0,0,w,h)}return}if(this.mode==='original'){c.drawImage(this.video,0,0,w,h);return}
     if(this.mode==='custom'&&this.customBg){c.drawImage(this.customBg,0,0,w,h);return}
     if(this.mode==='blur'){c.save();c.filter=`blur(${this.blurPx}px)`;c.drawImage(this.video,-25,-25,w+50,h+50);c.restore();return}
     const grads={studio:['#111827','#687386'],office:['#173b63','#d5edf7'],beach:['#55bdec','#f5d58e'],nature:['#174d2b','#9bd17f'],white:['#ffffff','#f1f5f9'],blue:['#2454a6','#64a1e8']};
     const pair=grads[this.mode]||grads.studio,g=c.createLinearGradient(0,0,w,h);g.addColorStop(0,pair[0]);g.addColorStop(1,pair[1]);c.fillStyle=g;c.fillRect(0,0,w,h);
+  }
+
+
+  cleanPersonMask(data,w,h){
+    const n=w*h,binary=new Uint8Array(n),seen=new Uint8Array(n);for(let i=0;i<n;i++)binary[i]=data[i]>=this.threshold?1:0;
+    let best=[],stack=[];const dirs=[-1,1,-w,w];
+    for(let i=0;i<n;i++){if(!binary[i]||seen[i])continue;let comp=[];stack=[i];seen[i]=1;let central=false;
+      while(stack.length){const q=stack.pop();comp.push(q);const x=q%w,y=(q/w)|0;if(x>w*.18&&x<w*.82&&y<h*.9)central=true;for(const d of dirs){const z=q+d;if(z<0||z>=n||seen[z]||!binary[z])continue;if((d===-1||d===1)&&Math.abs((z%w)-x)>1)continue;seen[z]=1;stack.push(z)}}
+      if(central&&comp.length>best.length)best=comp;
+    }
+    const keep=new Uint8Array(n);for(const i of best)keep[i]=1;return keep;
   }
 
   compose(result){
@@ -116,7 +132,7 @@ class AiCameraStudio extends HTMLElement {
     const mask=result.confidenceMasks?.[0];if(!mask){c.drawImage(this.video,0,0,w,h);return}
     const mw=mask.width,mh=mask.height,data=mask.getAsFloat32Array();
     const mc=document.createElement('canvas');mc.width=mw;mc.height=mh;const mx=mc.getContext('2d');const id=mx.createImageData(mw,mh);
-    for(let i=0;i<data.length;i++){const a=Math.max(0,Math.min(255,(data[i]-.12)*330));id.data[i*4]=255;id.data[i*4+1]=255;id.data[i*4+2]=255;id.data[i*4+3]=a}
+    const keep=this.cleanPersonMask(data,mw,mh);for(let i=0;i<data.length;i++){const soft=Math.max(0,Math.min(1,(data[i]-this.threshold+this.edgeSoftness)/(this.edgeSoftness*2)));const a=keep[i]?Math.round(255*soft):0;id.data[i*4]=255;id.data[i*4+1]=255;id.data[i*4+2]=255;id.data[i*4+3]=a}
     mx.putImageData(id,0,0);c.clearRect(0,0,w,h);this.drawBackground(w,h);c.save();c.globalCompositeOperation='source-over';const person=document.createElement('canvas');person.width=w;person.height=h;const px=person.getContext('2d');px.drawImage(this.video,0,0,w,h);px.globalCompositeOperation='destination-in';px.filter='blur(1.2px)';px.drawImage(mc,0,0,w,h);c.drawImage(person,0,0);c.restore();mask.close?.();
   }
   capture(){
@@ -169,7 +185,7 @@ class AiCameraStudio extends HTMLElement {
     const mask=result.confidenceMasks?.[0];if(!mask){c.drawImage(source,0,0,w,h);return}
     const mw=mask.width,mh=mask.height,data=mask.getAsFloat32Array();
     const mc=document.createElement('canvas');mc.width=mw;mc.height=mh;const mx=mc.getContext('2d');const id=mx.createImageData(mw,mh);
-    for(let i=0;i<data.length;i++){const a=Math.max(0,Math.min(255,(data[i]-.12)*330));id.data[i*4]=255;id.data[i*4+1]=255;id.data[i*4+2]=255;id.data[i*4+3]=a}
+    const keep=this.cleanPersonMask(data,mw,mh);for(let i=0;i<data.length;i++){const soft=Math.max(0,Math.min(1,(data[i]-this.threshold+this.edgeSoftness)/(this.edgeSoftness*2)));const a=keep[i]?Math.round(255*soft):0;id.data[i*4]=255;id.data[i*4+1]=255;id.data[i*4+2]=255;id.data[i*4+3]=a}
     mx.putImageData(id,0,0);c.clearRect(0,0,w,h);
     if(this.mode==='blur'){c.save();c.filter=`blur(${this.blurPx}px)`;c.drawImage(source,-25,-25,w+50,h+50);c.restore()}
     else if(this.mode==='custom'&&this.customBg)c.drawImage(this.customBg,0,0,w,h);

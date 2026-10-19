@@ -1,15 +1,14 @@
-# Realtime AI Background Studio v2
+# Portrait Studio AI - Professional Responsive UI
 
-## Features
-- Live camera with browser permission
-- Real-time MediaPipe person segmentation
-- Camera tracks stop immediately after **Capture Photo**
-- Static captured result remains visible after camera shutdown
-- Upload an existing image from the device
-- AI background removal for uploaded images
-- Change preset/custom background on uploaded images
-- Download final JPG
-- GitHub Actions deployment to GitHub Pages
+This build keeps the real-time MediaPipe segmentation and adds a fully redesigned responsive interface.
 
-## Deploy
-Replace the existing repository contents with these files, commit to `main`, and keep **Settings > Pages > Source** set to **GitHub Actions**.
+## UX
+- Premium dark glass desktop workspace
+- Large live portrait preview
+- Real photographic background thumbnails
+- Compact editing controls
+- Mobile portrait-oriented camera stage
+- Horizontal swipeable background gallery on phones
+- Touch-sized capture/upload controls
+- Camera stops immediately after capture
+- Upload photo and custom background options
