@@ -18,7 +18,9 @@ class AiCameraStudio extends HTMLElement {
     this.frozen = false;
     this.blurPx = 18;
     this.threshold = 0.58;
-    this.edgeSoftness = 0.08;
+    this.edgeSoftness = 0.07;
+    this.portraitCleanup = true;
+    this.temporalMask = null;
     this.assetBg = new Image();
   }
 
@@ -56,7 +58,7 @@ class AiCameraStudio extends HTMLElement {
           <div class="backgrounds">
             <button class="bg active" data-mode="executive-office"><span>Executive</span></button><button class="bg" data-mode="home-office"><span>Home Office</span></button><button class="bg" data-mode="conference-room"><span>Conference</span></button><button class="bg" data-mode="coworking"><span>Coworking</span></button><button class="bg" data-mode="photo-studio"><span>Photo Studio</span></button><button class="bg" data-mode="tech-office"><span>Tech Office</span></button><button class="bg white" data-mode="white"><span>Clean White</span></button><button class="bg blue" data-mode="blue"><span>Corporate Blue</span></button><button class="bg blur" data-mode="blur"><span>Smart Blur</span></button><button class="bg original" data-mode="original"><span>Original</span></button>
           </div>
-          <div class="section"><div class="labelRow"><label>Detection precision</label><small>Person only</small></div><input class="thresholdRange" type="range" min="42" max="78" value="58"><div class="labelRow" style="margin-top:12px"><label>Edge refinement</label><small>Hair & shoulders</small></div><input class="edgeRange" type="range" min="2" max="18" value="8"><div class="labelRow" style="margin-top:12px"><label>Background blur</label><small>Depth</small></div><input class="blurRange" type="range" min="4" max="35" value="18"></div>
+          <div class="section"><div class="labelRow"><label>Detection precision</label><small>Person only</small></div><input class="thresholdRange" type="range" min="42" max="78" value="58"><div class="labelRow" style="margin-top:12px"><label>Edge refinement</label><small>Hair & shoulders</small></div><input class="edgeRange" type="range" min="2" max="18" value="7"><label class="cleanupToggle" style="display:flex;align-items:center;justify-content:space-between;margin-top:14px;padding:11px;border-radius:12px;background:#ffffff0a;font-size:12px;font-weight:800"><span>Portrait cleanup <small style="display:block;font-weight:500;color:#8797ae">Reject chairs and side objects</small></span><input class="cleanupCheck" type="checkbox" checked style="width:20px;height:20px;accent-color:#7968ff"></label><div class="labelRow" style="margin-top:12px"><label>Background blur</label><small>Depth</small></div><input class="blurRange" type="range" min="4" max="35" value="18"></div>
           <div class="section"><label class="upload">＋ Upload custom background<input class="bgFile" type="file" accept="image/*"></label><button class="primary download" disabled>Download portrait</button><div class="privacy"><b>✓</b><span>Camera access stops immediately after capture. Processing stays in the browser.</span></div></div>
         </aside>
       </div>
@@ -73,6 +75,7 @@ class AiCameraStudio extends HTMLElement {
     this.$('.blurRange').oninput=e=>this.blurPx=Number(e.target.value);
     this.$('.thresholdRange').oninput=e=>{this.threshold=Number(e.target.value)/100;if(this.uploadedPhoto)this.processUploadedPhoto();};
     this.$('.edgeRange').oninput=e=>{this.edgeSoftness=Number(e.target.value)/100;if(this.uploadedPhoto)this.processUploadedPhoto();};
+    this.$('.cleanupCheck').onchange=e=>{this.portraitCleanup=e.target.checked;this.temporalMask=null;if(this.uploadedPhoto)this.processUploadedPhoto();};
     this.$('.photoFile').onchange=e=>this.loadPhoto(e);
     this.$('.bgFile').onchange=e=>{const f=e.target.files[0];if(!f)return;const im=new Image();im.onload=()=>{this.customBg=im;this.mode='custom';this.$all('.bg').forEach(x=>x.classList.remove('active'))};im.src=URL.createObjectURL(f)};
   }
@@ -87,7 +90,7 @@ class AiCameraStudio extends HTMLElement {
 
   async openCamera(){
     try{
-      this.stopTracks(); this.uploadedPhoto=null; this.frozen=false; this.facing=this.facing||'user';
+      this.stopTracks(); this.uploadedPhoto=null; this.frozen=false; this.temporalMask=null; this.facing=this.facing||'user';
       this.stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:this.facing},width:{ideal:1280},height:{ideal:720}},audio:false});
       this.video.srcObject=this.stream; await this.video.play(); this.running=true; this.$('.empty').style.display='none'; this.$('.capture').disabled=false;this.$('.stop').disabled=false;this.$('.switch').disabled=false;
       if(this.segmenter)await this.segmenter.setOptions({runningMode:'VIDEO'});this.canvas.width=this.video.videoWidth||1280;this.canvas.height=this.video.videoHeight||720;this.setStatus(this.segmenter?'Realtime AI segmentation active.':'Camera active; waiting for AI model...');requestAnimationFrame(t=>this.loop(t));
@@ -118,13 +121,28 @@ class AiCameraStudio extends HTMLElement {
 
 
   cleanPersonMask(data,w,h){
-    const n=w*h,binary=new Uint8Array(n),seen=new Uint8Array(n);for(let i=0;i<n;i++)binary[i]=data[i]>=this.threshold?1:0;
+    const n=w*h,raw=new Float32Array(n),binary=new Uint8Array(n),seen=new Uint8Array(n);
+    // 3x3 confidence smoothing reduces pinholes and unstable isolated pixels.
+    for(let y=0;y<h;y++)for(let x=0;x<w;x++){let sum=0,count=0;for(let yy=Math.max(0,y-1);yy<=Math.min(h-1,y+1);yy++)for(let xx=Math.max(0,x-1);xx<=Math.min(w-1,x+1);xx++){sum+=data[yy*w+xx];count++}raw[y*w+x]=sum/count}
+    for(let i=0;i<n;i++)binary[i]=raw[i]>=this.threshold?1:0;
+    // Keep the largest central connected foreground component.
     let best=[],stack=[];const dirs=[-1,1,-w,w];
-    for(let i=0;i<n;i++){if(!binary[i]||seen[i])continue;let comp=[];stack=[i];seen[i]=1;let central=false;
-      while(stack.length){const q=stack.pop();comp.push(q);const x=q%w,y=(q/w)|0;if(x>w*.18&&x<w*.82&&y<h*.9)central=true;for(const d of dirs){const z=q+d;if(z<0||z>=n||seen[z]||!binary[z])continue;if((d===-1||d===1)&&Math.abs((z%w)-x)>1)continue;seen[z]=1;stack.push(z)}}
-      if(central&&comp.length>best.length)best=comp;
+    for(let i=0;i<n;i++){if(!binary[i]||seen[i])continue;let comp=[];stack=[i];seen[i]=1;let central=0;
+      while(stack.length){const q=stack.pop();comp.push(q);const x=q%w,y=(q/w)|0;if(x>w*.25&&x<w*.75&&y<h*.82)central++;for(const d of dirs){const z=q+d;if(z<0||z>=n||seen[z]||!binary[z])continue;if((d===-1||d===1)&&Math.abs((z%w)-x)>1)continue;seen[z]=1;stack.push(z)}}
+      if(central>20&&comp.length>best.length)best=comp;
     }
-    const keep=new Uint8Array(n);for(const i of best)keep[i]=1;return keep;
+    const keep=new Float32Array(n);for(const i of best)keep[i]=raw[i];
+    if(this.portraitCleanup){
+      // Portrait-aware lower-frame taper suppresses connected chair/desk regions
+      // while preserving the central head, shoulders and torso.
+      for(let y=0;y<h;y++){const yn=y/h;const half=yn<.52?.48:Math.max(.28,.48-(yn-.52)*.36);const cx=.5;
+        for(let x=0;x<w;x++){const xn=x/w;if(Math.abs(xn-cx)>half)keep[y*w+x]*=.03;else if(yn>.68){const edge=Math.abs(xn-cx)/half;if(edge>.82)keep[y*w+x]*=(1-edge)/.18}}
+      }
+    }
+    // Temporal EMA reduces flicker without delaying capture.
+    if(!this.temporalMask||this.temporalMask.length!==n)this.temporalMask=keep.slice();
+    else for(let i=0;i<n;i++)this.temporalMask[i]=this.temporalMask[i]*.68+keep[i]*.32;
+    return this.temporalMask;
   }
 
   compose(result){
@@ -132,7 +150,7 @@ class AiCameraStudio extends HTMLElement {
     const mask=result.confidenceMasks?.[0];if(!mask){c.drawImage(this.video,0,0,w,h);return}
     const mw=mask.width,mh=mask.height,data=mask.getAsFloat32Array();
     const mc=document.createElement('canvas');mc.width=mw;mc.height=mh;const mx=mc.getContext('2d');const id=mx.createImageData(mw,mh);
-    const keep=this.cleanPersonMask(data,mw,mh);for(let i=0;i<data.length;i++){const soft=Math.max(0,Math.min(1,(data[i]-this.threshold+this.edgeSoftness)/(this.edgeSoftness*2)));const a=keep[i]?Math.round(255*soft):0;id.data[i*4]=255;id.data[i*4+1]=255;id.data[i*4+2]=255;id.data[i*4+3]=a}
+    const keep=this.cleanPersonMask(data,mw,mh);for(let i=0;i<data.length;i++){const soft=Math.max(0,Math.min(1,(data[i]-this.threshold+this.edgeSoftness)/(this.edgeSoftness*2)));const a=keep[i]>0?Math.round(255*soft*Math.min(1,keep[i]/Math.max(.01,this.threshold))):0;id.data[i*4]=255;id.data[i*4+1]=255;id.data[i*4+2]=255;id.data[i*4+3]=a}
     mx.putImageData(id,0,0);c.clearRect(0,0,w,h);this.drawBackground(w,h);c.save();c.globalCompositeOperation='source-over';const person=document.createElement('canvas');person.width=w;person.height=h;const px=person.getContext('2d');px.drawImage(this.video,0,0,w,h);px.globalCompositeOperation='destination-in';px.filter='blur(1.2px)';px.drawImage(mc,0,0,w,h);c.drawImage(person,0,0);c.restore();mask.close?.();
   }
   capture(){
@@ -154,6 +172,7 @@ class AiCameraStudio extends HTMLElement {
     const image=new Image();
     image.onload=async()=>{
       this.uploadedPhoto=image;
+      this.temporalMask=null;
       this.frozen=false;
       this.canvas.width=image.naturalWidth||image.width;
       this.canvas.height=image.naturalHeight||image.height;
@@ -185,7 +204,7 @@ class AiCameraStudio extends HTMLElement {
     const mask=result.confidenceMasks?.[0];if(!mask){c.drawImage(source,0,0,w,h);return}
     const mw=mask.width,mh=mask.height,data=mask.getAsFloat32Array();
     const mc=document.createElement('canvas');mc.width=mw;mc.height=mh;const mx=mc.getContext('2d');const id=mx.createImageData(mw,mh);
-    const keep=this.cleanPersonMask(data,mw,mh);for(let i=0;i<data.length;i++){const soft=Math.max(0,Math.min(1,(data[i]-this.threshold+this.edgeSoftness)/(this.edgeSoftness*2)));const a=keep[i]?Math.round(255*soft):0;id.data[i*4]=255;id.data[i*4+1]=255;id.data[i*4+2]=255;id.data[i*4+3]=a}
+    const keep=this.cleanPersonMask(data,mw,mh);for(let i=0;i<data.length;i++){const soft=Math.max(0,Math.min(1,(data[i]-this.threshold+this.edgeSoftness)/(this.edgeSoftness*2)));const a=keep[i]>0?Math.round(255*soft*Math.min(1,keep[i]/Math.max(.01,this.threshold))):0;id.data[i*4]=255;id.data[i*4+1]=255;id.data[i*4+2]=255;id.data[i*4+3]=a}
     mx.putImageData(id,0,0);c.clearRect(0,0,w,h);
     if(this.mode==='blur'){c.save();c.filter=`blur(${this.blurPx}px)`;c.drawImage(source,-25,-25,w+50,h+50);c.restore()}
     else if(this.mode==='custom'&&this.customBg)c.drawImage(this.customBg,0,0,w,h);
